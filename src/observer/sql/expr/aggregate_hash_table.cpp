@@ -211,7 +211,7 @@ void LinearProbingAggregateHashTable<V>::resize_if_need()
 template <typename V>
 void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_values, int len)
 {
-  __m256i inv = _mm256_set1_epi32(-1); // 全部初始化为 -1
+  __m256i inv = _mm256_set1_epi32(-1); // 全部初始化为 -1有效
   __m256i off = _mm256_setzero_si256(); // 全部初始化为 0
   int i = 0;
 
