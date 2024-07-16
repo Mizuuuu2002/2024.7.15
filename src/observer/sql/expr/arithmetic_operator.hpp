@@ -168,7 +168,7 @@ struct MultiplyOperator
 #if defined(USE_SIMD)
   static inline __m256 operation(__m256 left, __m256 right) { return _mm256_mul_ps(left, right); }
 
-  static inline __m256i operation(__m256i left, __m256i right) { return _mm256_mullo_epi32(left, right); }
+  static inline __m256i operation(__m256i left, __m256i right) { return _mm256_mul_epi32(left, right); }
 #endif
 };
 
@@ -316,7 +316,7 @@ void binary_operator(T *left_data, T *right_data, T *result_data, int size)
     }
   }
 
-  // 处理剩余未对齐的数据
+  // ??????????
   for (; i < size; i++) {
     auto &left_value  = left_data[LEFT_CONSTANT ? 0 : i];
     auto &right_value = right_data[RIGHT_CONSTANT ? 0 : i];
