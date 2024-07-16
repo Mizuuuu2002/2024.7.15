@@ -211,29 +211,69 @@ void LinearProbingAggregateHashTable<V>::resize_if_need()
 template <typename V>
 void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_values, int len)
 {
-  // your code here
-  exit(-1);
+  __m256i inv = _mm256_set1_epi32(-1); // 全部初始化为 -1
+  __m256i off = _mm256_setzero_si256(); // 全部初始化为 0
+  int i = 0;
 
-  // inv (invalid) 表示是否有效，inv[i] = -1 表示有效，inv[i] = 0 表示无效。
-  // key[SIMD_WIDTH],value[SIMD_WIDTH] 表示当前循环中处理的键值对。
-  // off (offset) 表示线性探测冲突时的偏移量，key[i] 每次遇到冲突键，则off[i]++，如果key[i] 已经完成聚合，则off[i] = 0，
-  // i = 0 表示selective load 的起始位置。
-  // inv 全部初始化为 -1
-  // off 全部初始化为 0
-
-  // for (; i + SIMD_WIDTH <= len;) {
+  for (; i + SIMD_WIDTH <= len;) {
     // 1: 根据 `inv` 变量的值，从 `input_keys` 中 `selective load` `SIMD_WIDTH` 个不同的输入键值对。
-    // 2. 计算 i += |inv|, `|inv|` 表示 `inv` 中有效的个数 
-    // 3. 计算 hash 值，
-    // 4. 根据聚合类型（目前只支持 sum），在哈希表中更新聚合结果。如果本次循环，没有找到key[i] 在哈希表中的位置，则不更新聚合结果。
-    // 5. gather 操作，根据 hash 值将 keys_ 的 gather 结果写入 table_key 中。
-    // 6. 更新 inv 和 off。如果本次循环key[i] 聚合完成，则inv[i]=-1，表示该位置在下次循环中读取新的键值对。
-    // 如果本次循环 key[i] 未在哈希表中聚合完成（table_key[i] != key[i]），则inv[i] = 0，表示该位置在下次循环中不需要读取新的键值对。
-    // 如果本次循环中，key[i]聚合完成，则off[i] 更新为 0，表示线性探测偏移量为 0，key[i] 未完成聚合，则off[i]++,表示线性探测偏移量加 1。
-  // }
-  //7. 通过标量线性探测，处理剩余键值对
+    __m256i keys = _mm256_maskload_epi32(input_keys + i, inv);
+    __m256 values = _mm256_maskload_ps(reinterpret_cast<float*>(input_values + i), inv);
 
-  // resize_if_need();
+    // 2. 计算 i += |inv|, `|inv|` 表示 `inv` 中有效的个数
+    int valid_count = _mm_popcnt_u32(_mm256_movemask_epi8(_mm256_castsi256_si128(inv)));
+    i += valid_count;
+
+    // 3. 计算 hash 值，
+    __m256i hash = _mm256_abs_epi32(keys);
+    hash = _mm256_rem_epi32(hash, _mm256_set1_epi32(capacity_));
+
+    while (valid_count > 0) {
+      __m256i gather_keys = _mm256_i32gather_epi32(keys_.data(), hash, 4);
+      __m256i cmp_result = _mm256_cmpeq_epi32(gather_keys, keys);
+      __m256 mask = _mm256_castsi256_ps(cmp_result);
+
+      // 4. 根据聚合类型（目前只支持 sum），在哈希表中更新聚合结果。如果本次循环，没有找到key[i] 在哈希表中的位置，则不更新聚合结果。
+      if (aggregate_type_ == AggregateExpr::Type::SUM) {
+        __m256 gather_values = _mm256_mask_i32gather_ps(_mm256_setzero_ps(), reinterpret_cast<const float*>(values_.data()), hash, mask, 4);
+        gather_values = _mm256_add_ps(gather_values, values);
+        _mm256_maskstore_ps(reinterpret_cast<float*>(values_.data()), mask, gather_values);
+      } else {
+        ASSERT(false, "unsupported aggregate type");
+      }
+
+      // 5. gather 操作，根据 hash 值将 keys_ 的 gather 结果写入 table_key 中。
+      __m256i table_keys = _mm256_i32gather_epi32(keys_.data(), hash, 4);
+
+      // 6. 更新 inv 和 off。如果本次循环key[i] 聚合完成，则inv[i]=-1，表示该位置在下次循环中读取新的键值对。
+      // 如果本次循环 key[i] 未在哈希表中聚合完成（table_key[i] != key[i]），则inv[i] = 0，表示该位置在下次循环中不需要读取新的键值对。
+      // 如果本次循环中，key[i]聚合完成，则off[i] 更新为 0，表示线性探测偏移量为 0，key[i] 未完成聚合，则off[i]++,表示线性探测偏移量加 1。
+      inv = _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(_mm256_set1_epi32(-1)), _mm256_castsi256_ps(_mm256_setzero_si256()), _mm256_castsi256_ps(cmp_result)));
+      off = _mm256_add_epi32(off, _mm256_andnot_si256(cmp_result, _mm256_set1_epi32(1)));
+      hash = _mm256_add_epi32(hash, off);
+      
+      valid_count = _mm_popcnt_u32(_mm256_movemask_epi8(_mm256_castsi256_si128(inv)));
+    }
+  }
+
+  // 7. 通过标量线性探测，处理剩余键值对
+  for (; i < len; ++i) {
+    int key = input_keys[i];
+    V value = input_values[i];
+    int index = (key % capacity_ + capacity_) % capacity_;
+    while (keys_[index] != EMPTY_KEY && keys_[index] != key) {
+      index = (index + 1) % capacity_;
+    }
+    if (keys_[index] == EMPTY_KEY) {
+      keys_[index] = key;
+      values_[index] = value;
+      ++size_;
+    } else {
+      aggregate(&values_[index], value);
+    }
+  }
+
+  //resize_if_need();
 }
 
 template <typename V>
