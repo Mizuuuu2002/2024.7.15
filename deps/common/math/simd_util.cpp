@@ -32,8 +32,8 @@ int mm256_sum_epi32(const int *values, int size)
   int epoch=size/16;//????
   int temp[epoch*8+size-epoch*16];//?????
   for(int j=0 ; j<epoch ; j++){
-    __m256i temp1 = _mm256_loadu_epi32(values[0+j*16]);//?8?
-    __m256i temp2 = _mm256_loadu_epi32(values[0+j*16+8]);//?8?
+    __m256i temp1 = _mm256_loadu_epi32(&values[0+j*16]);//?8?
+    __m256i temp2 = _mm256_loadu_epi32(&values[0+j*16+8]);//?8?
     __m256i temp3  = _mm256_add_epi32(temp1, temp2);
     _mm256_storeu_epi32(temp[0+j*8], temp3);//??????
   }
@@ -55,8 +55,8 @@ float mm256_sum_ps(const float *values, int size)
   int epoch=size/16;//????
   float temp[epoch*8+size-epoch*16];//?????
   for(int j=0 ; j<epoch ; j++){
-    __m256 temp1 = _mm256_loadu_ps(values[0+j*16]);//?8?
-    __m256 temp2 = _mm256_loadu_ps(values[0+j*16+8]);//?8?
+    __m256 temp1 = _mm256_loadu_ps(&values[0+j*16]);//?8?
+    __m256 temp2 = _mm256_loadu_ps(&values[0+j*16+8]);//?8?
     __m256 temp3  = _mm256_add_ps(temp1, temp2);
     _mm256_storeu_ps(temp[0+j*8], temp3);//??????
   }
@@ -65,7 +65,6 @@ float mm256_sum_ps(const float *values, int size)
   }
   mm256_sum_epi32(temp,epoch*8+size-epoch*16);
 }
-
 template <typename V>
 void selective_load(V *memory, int offset, V *vec, __m256i &inv)
 {
