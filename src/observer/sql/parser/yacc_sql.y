@@ -55,16 +55,17 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 
 %define api.pure full
 %define parse.error verbose
-/** 启用位置标识 **/
+/** å¯ç¨ä½ç½®æ è¯ **/
 %locations
 %lex-param { yyscan_t scanner }
-/** 这些定义了在yyparse函数中的参数 **/
+/** è¿äºå®ä¹äºå¨yyparseå½æ°ä¸­çåæ° **/
 %parse-param { const char * sql_string }
 %parse-param { ParsedSqlResult * sql_result }
 %parse-param { void * scanner }
 
-//标识tokens
-%token  SEMICOLON
+//æ è¯tokens
+%token  SUM
+        SEMICOLON
         BY
         CREATE
         DROP
@@ -112,7 +113,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         GE
         NE
 
-/** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
+/** union ä¸­å®ä¹åç§æ°æ®ç±»åï¼çå®çæçä»£ç ä¹æ¯unionç±»åï¼æä»¥ä¸è½æéPODç±»åçæ°æ® **/
 %union {
   ParsedSqlNode *                            sql_node;
   ConditionSqlNode *                         condition;
@@ -136,9 +137,9 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %token <floats> FLOAT
 %token <string> ID
 %token <string> SSS
-//非终结符
+//éç»ç»ç¬¦
 
-/** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
+/** type å®ä¹äºåç§è§£æåçç»æè¾åºçæ¯ä»ä¹ç±»åãç±»åå¯¹åºäº union ä¸­çå®ä¹çæååéåç§° **/
 %type <number>              type
 %type <condition>           condition
 %type <value>               value
@@ -217,7 +218,7 @@ command_wrapper:
 
 exit_stmt:      
     EXIT {
-      (void)yynerrs;  // 这么写为了消除yynerrs未使用的告警。如果你有更好的方法欢迎提PR
+      (void)yynerrs;  // è¿ä¹åä¸ºäºæ¶é¤yynerrsæªä½¿ç¨çåè­¦ãå¦æä½ ææ´å¥½çæ¹æ³æ¬¢è¿æPR
       $$ = new ParsedSqlNode(SCF_EXIT);
     };
 
@@ -250,7 +251,7 @@ rollback_stmt:
     }
     ;
 
-drop_table_stmt:    /*drop table 语句的语法解析树*/
+drop_table_stmt:    /*drop table è¯­å¥çè¯­æ³è§£ææ */
     DROP TABLE ID {
       $$ = new ParsedSqlNode(SCF_DROP_TABLE);
       $$->drop_table.relation_name = $3;
@@ -271,7 +272,7 @@ desc_table_stmt:
     }
     ;
 
-create_index_stmt:    /*create index 语句的语法解析树*/
+create_index_stmt:    /*create index è¯­å¥çè¯­æ³è§£ææ */
     CREATE INDEX ID ON ID LBRACE ID RBRACE
     {
       $$ = new ParsedSqlNode(SCF_CREATE_INDEX);
@@ -285,7 +286,7 @@ create_index_stmt:    /*create index 语句的语法解析树*/
     }
     ;
 
-drop_index_stmt:      /*drop index 语句的语法解析树*/
+drop_index_stmt:      /*drop index è¯­å¥çè¯­æ³è§£ææ */
     DROP INDEX ID ON ID
     {
       $$ = new ParsedSqlNode(SCF_DROP_INDEX);
@@ -295,7 +296,7 @@ drop_index_stmt:      /*drop index 语句的语法解析树*/
       free($5);
     }
     ;
-create_table_stmt:    /*create table 语句的语法解析树*/
+create_table_stmt:    /*create table è¯­å¥çè¯­æ³è§£ææ */
     CREATE TABLE ID LBRACE attr_def attr_def_list RBRACE storage_format
     {
       $$ = new ParsedSqlNode(SCF_CREATE_TABLE);
@@ -361,7 +362,7 @@ type:
     | STRING_T { $$ = static_cast<int>(AttrType::CHARS); }
     | FLOAT_T  { $$ = static_cast<int>(AttrType::FLOATS); }
     ;
-insert_stmt:        /*insert   语句的语法解析树*/
+insert_stmt:        /*insert   è¯­å¥çè¯­æ³è§£ææ */
     INSERT INTO ID VALUES LBRACE value value_list RBRACE 
     {
       $$ = new ParsedSqlNode(SCF_INSERT);
@@ -419,7 +420,7 @@ storage_format:
     }
     ;
     
-delete_stmt:    /*  delete 语句的语法解析树*/
+delete_stmt:    /*  delete è¯­å¥çè¯­æ³è§£ææ */
     DELETE FROM ID where 
     {
       $$ = new ParsedSqlNode(SCF_DELETE);
@@ -431,7 +432,7 @@ delete_stmt:    /*  delete 语句的语法解析树*/
       free($3);
     }
     ;
-update_stmt:      /*  update 语句的语法解析树*/
+update_stmt:      /*  update è¯­å¥çè¯­æ³è§£ææ */
     UPDATE ID SET ID EQ value where 
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
@@ -446,7 +447,7 @@ update_stmt:      /*  update 语句的语法解析树*/
       free($4);
     }
     ;
-select_stmt:        /*  select 语句的语法解析树*/
+select_stmt:        /*  select è¯­å¥çè¯­æ³è§£ææ */
     SELECT expression_list FROM rel_list where group_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
@@ -530,7 +531,10 @@ expression:
     | '*' {
       $$ = new StarExpr();
     }
-    // your code here
+    // 聚合函数: SUM
+    | SUM LBRACE expression RBRACE {
+      $$ = create_aggregate_expression("SUM", $3, sql_string, &@$);
+    }
     ;
 
 rel_attr:
@@ -661,6 +665,10 @@ group_by:
     /* empty */
     {
       $$ = nullptr;
+    }
+    | GROUP BY expression_list
+    {
+      $$ = $3;
     }
     ;
 load_data_stmt:
