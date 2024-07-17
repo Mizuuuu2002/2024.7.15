@@ -211,40 +211,43 @@ void LinearProbingAggregateHashTable<V>::resize_if_need()
 template <typename V>
 void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_values, int len)
 {
-  int SIMD_WIDTH=8;//一次输入8个
-  int inv[8]={-1,-1,-1,-1,-1,-1,-1,-1};//掩码，-1代表上一个已经成功插入
-  int off[8]={0,0,0,0,0,0,0,0};//偏移值，用于探测，没有成功插入的，off++
-  int key[SIMD_WIDTH];//当前处理的K
-  V   value[SIMD_WIDTH];//当前处理的V
+  const int SIMD_WIDTH = 8; // 一次输入8个
+  int inv[SIMD_WIDTH] = {-1, -1, -1, -1, -1, -1, -1, -1}; // 掩码，-1代表上一个已经成功插入
+  int off[SIMD_WIDTH] = {0, 0, 0, 0, 0, 0, 0, 0}; // 偏移值，用于探测，没有成功插入的，off++
+  int key[SIMD_WIDTH]; // 当前处理的K
+  V value[SIMD_WIDTH]; // 当前处理的V
   int hash[SIMD_WIDTH];
-  int i=0;//代表处理到哪个数KV的值
-  //1.载入数据(不知道怎么向量化)//2.已经移动有效个数
+  int i = 0; // 代表处理到哪个数KV的值
+
+  // 载入数据(向量化)并处理
   for (; i + SIMD_WIDTH <= len;) {
-     for(int j=0;j<SIMD_WIDTH;j++){
-      if(inv[j]==-1){
-        key[j]=input_keys[i];
-        value[j]=input_values[i];
+    for (int j = 0; j < SIMD_WIDTH; j++) {
+      if (inv[j] == -1) {
+        key[j] = input_keys[i];
+        value[j] = input_values[i];
         i++;
       }
     }
-    //3.计算哈希值及以后
-    for(int j=0;j<SIMD_WIDTH;j++){
-      hash[j]=(key[j] % capacity_ + capacity_) % capacity_+off[j];
+
+    // 计算哈希值及以后
+    for (int j = 0; j < SIMD_WIDTH; j++) {
+      hash[j] = ((key[j] % capacity_ + capacity_) % capacity_ + off[j]) % capacity_;
     }
-    for(int j=0;j<SIMD_WIDTH;j++){
-      if(input_keys[hash[j]]==EMPTY_KEY||input_keys[hash[j]]==key[j]){
-        values_[hash[j]]+=value[j];
-        keys_[hash[j]]=key[j];
+
+    for (int j = 0; j < SIMD_WIDTH; j++) {
+      if (keys_[hash[j]] == EMPTY_KEY || keys_[hash[j]] == key[j]) {
+        values_[hash[j]] += value[j];
+        keys_[hash[j]] = key[j];
         inv[j] = -1;
         off[j] = 0;
-      }
-      else{
+      } else {
         off[j]++;
         inv[j] = 0;
       }
     }
   }
-  //4.最后的线性探测
+
+  // 处理剩余的键值对
   for (; i < len; ++i) {
     int key = input_keys[i];
     V value = input_values[i];
@@ -257,21 +260,9 @@ void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_val
       values_[index] = value;
       ++size_;
     } else {
-      aggregate(&values_[index], value);
+      values_[index] += value; // 这里直接使用 += 操作符
     }
   }
-  
-  // for (; i + SIMD_WIDTH <= len;) {
-    // 1: 根据 `inv` 变量的值，从 `input_keys` 中 `selective load` `SIMD_WIDTH` 个不同的输入键值对。
-    // 2. 计算 i += |inv|, `|inv|` 表示 `inv` 中有效的个数 
-    // 3. 计算 hash 值，
-    // 4. 根据聚合类型（目前只支持 sum），在哈希表中更新聚合结果。如果本次循环，没有找到key[i] 在哈希表中的位置，则不更新聚合结果。
-    // 5. gather 操作，根据 hash 值将 keys_ 的 gather 结果写入 table_key 中。                           //表里还需要维护key值有哪些，不能只维护聚合值?
-    // 6. 更新 inv 和 off。如果本次循环key[i] 聚合完成，则inv[i]=-1，表示该位置在下次循环中读取新的键值对。
-    // 如果本次循环 key[i] 未在哈希表中聚合完成（table_key[i] != key[i]），则inv[i] = 0，表示该位置在下次循环中不需要读取新的键值对。
-    // 如果本次循环中，key[i]聚合完成，则off[i] 更新为 0，表示线性探测偏移量为 0，key[i] 未完成聚合，则off[i]++,表示线性探测偏移量加 1。
-  // }
-  //7. 通过标量线性探测，处理剩余键值对
 }
 
 template <typename V>
